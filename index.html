@@ -5,15 +5,23 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Backbone Filters</title>
     <link rel="stylesheet" href="">
+
+    <style>
+        li {
+            list-style: none;
+        }
+    </style>
 </head>
 <body>
 
-    <button id="orderStatusButton">Order Status</button>
-    <input id="orderStatusFilterText" type="text"></input>
-    <div id="orderStatusContainer">
+    <div id="myView">
+        <button id="orderStatusButton">Order Status</button>
+        <input id="orderStatusFilterText" type="text"></input>
+        <div id="orderStatusContainer">
+        </div>
+        <button id="cancelButton">Cancel</button>
+        <button id="applyButton">Apply</button>
     </div>
-    <button id="cancelButton">Cancel</button>
-    <button id="applyButton">Apply</button>
 
     <script type="text/javascript" src="libs/jquery-2.1.1.js"></script>
     <script type="text/javascript" src="libs/underscore.js"></script>

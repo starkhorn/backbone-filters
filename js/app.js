@@ -1,124 +1,174 @@
-var OrderStatusFilterButton = Backbone.View.extend({
-
-    "previousCollection": new Backbone.Collection(),
-    "currentCollection": new Backbone.Collection(),
-    "displayCollection": new Backbone.Collection(),
-   
+var RollbackCollection = Backbone.Collection.extend({
 
     context: new Backbone.Model({
-        "itemFilterText": "",
-        "criteria": new Backbone.Model(),
+        currentFilter: undefined
     }),
 
-    ui: {},
+    filtered: new Backbone.Collection(),
+    previous: new Backbone.Collection(),
 
     initialize: function() {
-        var self = this;
+        this.on("reset", this.onCollectionReset, this);
 
-        // this.previousCollection.on("reset", this.resetToPrevious, this);
-        this.displayCollection.on("reset", this.onDisplayCollectionChange, this);
+        this.context.on("change:currentFilter", this.applyFilter, this);
+    },
 
-        $(document).on("click", ".orderStatusItem", this.onOrderStatusItemClick.bind(this));
-        $(document).on("click", "#applyButton", _.bind(this.onApplyButtonClick, this));
-        $(document).on("click", "#cancelButton", _.bind(this.onCancelButtonClick, this));
+    onCollectionReset: function() {
+        this.saveCurrentItems();
+        this.applyFilter();
+    },
 
-        this.context.on("change:itemFilterText", this.onFilterTextChange, this);
+    setFilter: function(predicate) {
+        this.context.set("currentFilter", predicate);
+    },
 
-        this.ui.orderStatusFilter = $("#orderStatusFilterText");
-        this.ui.orderStatusFilter.on("input", function(event) {
-            self.context.set("itemFilterText", $(event.currentTarget).val());
+    applyFilter: function() {
+        var filter = this.context.get("currentFilter");
+
+        this.filtered.reset(this.filter(filter));
+    },
+
+    saveCurrentItems: function() {
+        this.previous.reset(this.map(function(item) {
+            return item.clone();
+        }));
+    },
+
+    rollback: function() {
+        this.reset(this.previous.models);
+    }
+});
+
+var BaseView = Backbone.View.extend({
+    ui: {
+        // name: "selector"
+    },
+    uiEvents: {
+        // "event ui-name": "callback"
+    },
+
+    constructor: function() {
+        this.initialize = _.wrap(this.initialize, function(actualFn) {
+            this.bindEvents();
+            this.bindUiEvents();
+
+            actualFn.apply(this, _(arguments).rest());
         });
-        
-        this.setItems([
+
+        Backbone.View.prototype.constructor.apply(this, arguments);
+    },
+
+    getUi: function(key) {
+        var selector = this.ui[key];
+
+        return this.$(selector);
+    },
+
+    bindUiEvents: function() {
+        var uiEvents = _(this.uiEvents).reduce(function(memo, callback, event) {
+            var parts = event.split(" ");
+            var eventName = _(parts).initial();
+            var uiKey = _(parts).last();
+
+            var actualSelector = this.ui[uiKey];
+            var actualEvent = eventName.concat([ actualSelector ]).join(" ");
+
+            memo[actualEvent] = callback;
+
+            return memo;
+        }, {}, this);
+
+        this.delegateEvents(uiEvents);
+    },
+});
+
+var MyView = BaseView.extend({
+
+    items: new RollbackCollection(),
+
+    ui: {
+        itemContainer: "#orderStatusContainer",
+        filterInput: "#orderStatusFilterText",
+        itemInput: ".item input",
+        applyButton: "#applyButton",
+        cancelButton: "#cancelButton"
+    },
+
+    uiEvents: {
+        "input filterInput": "onFilterInputChange",
+        "change itemInput": "onItemInputChange",
+        "click applyButton": "onApplyButtonClick",
+        "click cancelButton": "onCancelButtonClick"
+    },
+
+    initialize: function() {
+        var initials = _([
             "Open Order",
             "Pending Signature",
             "Pending Review",
             "Completed",
             "Rejected"
-        ]);
-    },
-
-    setItems: function(items) {
-        this.previousCollection.reset(_(items).map(function(item) {
+        ]).map(function(item) {
             return { name: item, selected: false };
-        }));
-
-        this.resetToPrevious();
-    },
-
-    resetToPrevious: function() {
-        var previous = this.clone(this.previousCollection.models);
-
-        this.currentCollection.reset(previous);
-        this.displayCollection.reset(previous);
-    },
-
-    onDisplayCollectionChange: function() {
-        var lis = this.displayCollection.map(function(item) {
-            return $("<li>")
-                .addClass("orderStatusItem")
-                .data("model", item)
-                .text(item.get("name") + " => " + item.get("selected"));
         });
 
-        $("#orderStatusContainer").html(lis);
+        this.items.reset(initials);
     },
 
-    clone: function(items) {
-        return _(items).map(function(item) {
-            return item.clone();
+    bindEvents: function() {
+        this.items.filtered.on("reset", this.onFilteredItemsChange, this);
+    },
+
+    onFilterInputChange: function() {
+        var filterText = this.getUi("filterInput").val();
+
+        this.items.setFilter(function(item) {
+            var itemName = item.get("name").toLowerCase();
+
+            return itemName.indexOf(filterText.toLowerCase()) >= 0;
         });
     },
 
-    onFilterTextChange: function() {
-        var text = this.context.get("itemFilterText");
-        var filtered = this.currentCollection.filter(function(item) {
-            return item.get('name').toLowerCase().indexOf(text.toLowerCase()) >= 0;
+    onFilteredItemsChange: function() {
+        var filtered = this.items.filtered;
+
+        this.populateItemElements(filtered);
+    },
+
+    populateItemElements: function(items) {
+        var elements = items.map(function(item) {
+            var li = $("<li>")
+                .addClass("item")
+                .data("model", item);
+
+            var checkbox = $("<input>")
+                .attr({
+                    type: "checkbox",
+                    value: item.get("name"),
+                    checked: item.get("selected")
+                });
+
+            return li.append(checkbox).append(item.get("name"));
         });
 
-        this.displayCollection.reset(filtered);
-        this.ui.orderStatusFilter.val(text);
+        this.getUi("itemContainer").html(elements);
     },
 
-    onOrderStatusItemClick: function(event) {
-         var li = $(event.currentTarget);
+    onItemInputChange: function(event) {
+        var item = $(event.currentTarget).parents(".item");
+        var model = item.data("model");
 
-         var item = li.data("model");
-         item.set("selected", !item.get("selected"));
-
-         li.text(item.get("name") + " => " + item.get("selected"));
+        model.set("selected", !model.get("selected"));
     },
 
-    onApplyButtonClick: function(event) {
-        // var criteria = this.buildCriteria();
-
-        // this.set("criteria", criteria);
-
-        // var triggered = {
-        //     criteria: criteria
-        // };
-
-        // this.context.set("itemFilterText", "");
-        this.previousCollection.reset(this.currentCollection.models);
+    onApplyButtonClick: function() {
+        this.items.saveCurrentItems();
     },
 
-    onCancelButtonClick: function(event) {
-        this.context.set("itemFilterText", "");
-        this.resetToPrevious();
-    },
-
-    buildCriteria: function() {
-
-        var selected = $(".orderStatusItem")
-            .filter(function() { return $(this).text().indexOf("true") >= 0; })
-            .map(function() { return $(this).data("model").get("name"); })
-            .toArray();
-
-        return {
-            orderStatus: selected
-        };
+    onCancelButtonClick: function() {
+        this.items.rollback();
     }
 
 });
 
-new OrderStatusFilterButton({ el: $('#orderStatusButton') });
+var ohmView = new MyView({ el: $("#myView") });
